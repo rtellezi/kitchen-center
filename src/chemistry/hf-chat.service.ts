@@ -10,7 +10,8 @@ const SYSTEM_PROMPT =
   '3. Topics can include: human biology/physiology related to intimacy or attraction, psychological aspects of love/relationships/attraction, historical trivia about relationships/marriage/intimacy customs, relationship science/interpersonal dynamics, sexual health/wellness/safety, or any other interesting aspect of intimacy, love, or sexual health\n' +
   '4. Include explicit content or inappropriate language only if it has scientific basis\n' +
   '5. Always make it educational and interesting\n' +
-  '6. Format: Plain text only, no markdown, no quotes';
+  '6. Vary topics and avoid repeating the same facts - explore different angles and lesser-known information\n' +
+  '7. Format: Plain text only, no markdown, no quotes';
 
 type HfChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 

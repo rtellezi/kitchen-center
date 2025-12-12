@@ -18,7 +18,7 @@ import { HealthModule } from './health/health.module';
           'https://router.huggingface.co/v1/chat/completions',
         ),
         HF_MAX_TOKENS: Joi.number().default(100),
-        HF_TEMPERATURE: Joi.number().default(0.7),
+        HF_TEMPERATURE: Joi.number().default(0.95),
         CORS_ORIGINS: Joi.string().optional(),
       }),
     }),
