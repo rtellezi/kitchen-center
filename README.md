@@ -21,7 +21,7 @@ This is a minimal NestJS backend configured for deployment on Vercel.
 Copy `sample.env` to `.env` and fill in the values:
 
 ```bash
-cp sample.env .env
+cp sample.env .env  
 ```
 
 Required environment variables:
