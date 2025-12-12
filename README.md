@@ -50,7 +50,7 @@ Once deployed, you can access the API at your Vercel URL (e.g., `https://your-pr
 ### Endpoints
 
 - **Health Check**:
-  - URL: `/api/health` or `/health` (depending on Vercel rewrite rules, usually handled by `vercel.json` rewrites to `/api/index.ts` but the controller path is `/health`, so typically `/api/health` effectively if the express app handles routing from root, but vercel.json routes `/(.*)` to `/api/index.ts`. NestJS app inside assumes root based. So `https://your-app.vercel.app/health` should work).
+  - URL: `https://your-app.vercel.app/health`
   - Method: `GET`
   - Response:
     ```json
@@ -61,6 +61,33 @@ Once deployed, you can access the API at your Vercel URL (e.g., `https://your-pr
     }
     ```
 
+- **Chemistry Fact Generation**:
+  - URL: `https://your-app.vercel.app/chemistry/fact`
+  - Method: `POST`
+  - Body:
+    ```json
+    {
+      "prompt": "Generate a fact about the psychology of love."
+    }
+    ```
+
 - **Swagger Documentation**:
-  - URL: `/docs`
+  - URL: `https://your-app.vercel.app/docs`
+
+### Troubleshooting
+
+If endpoints are not accessible on Vercel:
+
+1. **Check Environment Variables**: Ensure all required environment variables are set in Vercel Project Settings:
+   - `HF_TOKEN` (required)
+   - `CORS_ORIGINS` (optional, defaults to localhost)
+   - Other HF_* variables (optional, have defaults)
+
+2. **Check Build Logs**: In Vercel Dashboard, check the build logs to ensure the build completed successfully.
+
+3. **Check Function Logs**: In Vercel Dashboard, go to the Functions tab and check runtime logs for any errors.
+
+4. **Verify Routes**: The `vercel.json` routes all requests to `/api/index.ts`. Make sure this file is properly built and deployed.
+
+5. **Test Locally**: Run `npm run start:dev` and verify all endpoints work locally before deploying.
 

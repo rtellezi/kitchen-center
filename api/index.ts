@@ -6,40 +6,58 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import express from 'express';
 import { Request, Response } from 'express';
 
-const server = express();
+let cachedApp: express.Express | null = null;
 
-const createNestServer = async (expressInstance: express.Express) => {
+async function createNestServer(): Promise<express.Express> {
+  if (cachedApp) {
+    return cachedApp;
+  }
+
+  const expressApp = express();
   const app = await NestFactory.create(
     AppModule,
-    new ExpressAdapter(expressInstance),
+    new ExpressAdapter(expressApp),
+    {
+      logger: false,
+    },
   );
+
   const configService = app.get(ConfigService);
-  const corsOrigins = configService.get<string>('CORS_ORIGINS', '').split(',');
+  const corsOrigins = configService.get<string>('CORS_ORIGINS', '').split(',').filter(Boolean);
 
   const config = new DocumentBuilder()
     .setTitle('Test Backend API')
     .setDescription('The test backend API description')
     .setVersion('1.0')
     .addTag('health')
+    .addTag('chemistry')
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  SwaggerModule.setup('docs', app, document, {
+    customSiteTitle: 'Test Backend API Docs',
+    customCss: '.swagger-ui .topbar { display: none }',
+  });
 
   app.enableCors({
-    origin: corsOrigins,
+    origin: corsOrigins.length > 0 ? corsOrigins : true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
   });
+
   await app.init();
-  return app;
-};
+  cachedApp = expressApp;
+  return expressApp;
+}
 
-let appPromise: Promise<any> | null = null;
-
-export default async function handler(req: Request, res: Response) {
-  if (!appPromise) {
-    appPromise = createNestServer(server);
+export default async function handler(req: Request, res: Response): Promise<void> {
+  try {
+    const app = await createNestServer();
+    app(req, res);
+  } catch (error) {
+    console.error('Error in serverless handler:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
-  await appPromise;
-  server(req, res);
 }
