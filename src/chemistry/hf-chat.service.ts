@@ -38,11 +38,21 @@ export class HfChatService {
   ) {}
 
   async generateFact(prompt: string): Promise<string> {
+    this.logger.log('generateFact called', { promptLength: prompt.length });
+    
     const token = this.configService.getOrThrow<string>('HF_TOKEN');
     const model = this.configService.getOrThrow<string>('HF_MODEL');
     const apiUrl = this.configService.getOrThrow<string>('HF_API_URL');
     const maxTokens = this.configService.get<number>('HF_MAX_TOKENS');
     const temperature = this.configService.get<number>('HF_TEMPERATURE');
+
+    this.logger.debug('HF Config', {
+      model,
+      apiUrl,
+      maxTokens,
+      temperature,
+      hasToken: !!token,
+    });
 
     const messages: HfChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -50,6 +60,9 @@ export class HfChatService {
     ];
 
     try {
+      this.logger.log('Calling Hugging Face API...');
+      const startTime = Date.now();
+      
       const response = await firstValueFrom(
         this.httpService.post<HfChatResponse>(
           apiUrl,
@@ -68,14 +81,30 @@ export class HfChatService {
         ),
       );
 
+      const duration = Date.now() - startTime;
+      this.logger.log(`HF API response received in ${duration}ms`, {
+        status: response.status,
+        hasChoices: !!response.data?.choices?.length,
+      });
+
       const fact = response.data?.choices?.[0]?.message?.content?.trim();
       if (!fact) {
-        this.logger.error(`Unexpected Hugging Face response: ${JSON.stringify(response.data)}`);
+        this.logger.error('Unexpected Hugging Face response', {
+          responseData: JSON.stringify(response.data),
+          choicesLength: response.data?.choices?.length,
+        });
         throw new InternalServerErrorException('No fact returned from model');
       }
+
+      this.logger.log('Fact generated successfully', { factLength: fact.length });
       return fact;
     } catch (error) {
-      this.logger.error('Failed to call Hugging Face router', error as Error);
+      this.logger.error('Failed to call Hugging Face router', {
+        error: error instanceof Error ? error.message : String(error),
+        apiUrl,
+        hasToken: !!token,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw new InternalServerErrorException('Unable to generate fact at this time');
     }
   }

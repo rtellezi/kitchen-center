@@ -96,7 +96,60 @@ Set environment variables in Vercel Project Settings:
 
 ## Troubleshooting
 
-1. **Endpoints not accessible**: Check Vercel Function Logs for errors
-2. **CORS errors in production**: Verify `CORS_ORIGINS` includes your frontend domain
-3. **Build fails**: Check build logs in Vercel Dashboard
-4. **Missing HF_TOKEN**: Ensure environment variable is set in Vercel
+### CORS Issues (Frontend can't access API)
+
+**Symptoms**: 
+- Works in Postman but not from frontend
+- Browser console shows CORS errors
+- 401/403 errors from frontend
+
+**Solutions**:
+
+1. **Check CORS_ORIGINS in Vercel**:
+   - Go to Vercel Project → Settings → Environment Variables
+   - Verify `CORS_ORIGINS` includes your frontend domain
+   - Format: `https://your-frontend.vercel.app,https://another-domain.com`
+   - **Important**: No spaces, comma-separated, include protocol (`https://`)
+
+2. **Check NODE_ENV**:
+   - Should be set to `production` in Vercel
+   - If not set, CORS will default to allowing all (dev mode)
+
+3. **Verify Frontend URL**:
+   - Check browser console for the exact origin being blocked
+   - Ensure it matches exactly what's in `CORS_ORIGINS` (including protocol)
+
+4. **Check Vercel Function Logs**:
+   - Go to Vercel Dashboard → Your Project → Functions tab
+   - Click on a function execution to see logs
+   - Look for CORS-related messages and request details
+
+### Endpoint Not Working
+
+1. **Check Vercel Function Logs**: 
+   - Look for request logs showing method, path, and origin
+   - Check for error messages with request IDs
+
+2. **Verify Environment Variables**:
+   - `HF_TOKEN` must be set
+   - `NODE_ENV` should be `production`
+   - `CORS_ORIGINS` should include your frontend domain
+
+3. **Test Endpoint**:
+   ```bash
+   # Test health endpoint
+   curl https://your-app.vercel.app/health
+   
+   # Test chemistry endpoint
+   curl -X POST https://your-app.vercel.app/chemistry/fact \
+     -H "Content-Type: application/json" \
+     -d '{"prompt":"test"}'
+   ```
+
+4. **Check Build Logs**: Ensure build completed successfully
+
+### Common Issues
+
+- **Missing HF_TOKEN**: API will fail with 500 error
+- **CORS_ORIGINS not set in production**: CORS will be disabled (returns false)
+- **Frontend domain mismatch**: Must match exactly including `https://`
