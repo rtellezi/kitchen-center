@@ -16,6 +16,17 @@ This is a minimal NestJS backend configured for deployment on Vercel.
    The API will be available at `http://localhost:3000`.
    Swagger documentation: `http://localhost:3000/docs`.
 
+## Configuration
+
+Copy `sample.env` to `.env` and fill in the values:
+
+```bash
+cp sample.env .env
+```
+
+Required environment variables:
+- `HF_TOKEN`: Your Hugging Face API token.
+
 ## Deployment to Vercel
 
 1. **Push to Git**: Ensure this code is pushed to a Git repository (GitHub, GitLab, or Bitbucket).

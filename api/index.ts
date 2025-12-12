@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from '../src/app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import express from 'express';
@@ -12,6 +13,8 @@ const createNestServer = async (expressInstance: express.Express) => {
     AppModule,
     new ExpressAdapter(expressInstance),
   );
+  const configService = app.get(ConfigService);
+  const corsOrigins = configService.get<string>('CORS_ORIGINS', '').split(',');
 
   const config = new DocumentBuilder()
     .setTitle('Test Backend API')
@@ -22,7 +25,11 @@ const createNestServer = async (expressInstance: express.Express) => {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
-  app.enableCors();
+  app.enableCors({
+    origin: corsOrigins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
   await app.init();
   return app;
 };
@@ -36,4 +43,3 @@ export default async function handler(req: Request, res: Response) {
   await appPromise;
   server(req, res);
 }
-
