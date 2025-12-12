@@ -8,7 +8,9 @@ import { HealthModule } from './health/health.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: [`.env.${process.env.NODE_ENV || 'development'}`, '.env'],
       validationSchema: Joi.object({
+        NODE_ENV: Joi.string().valid('development', 'production').default('development'),
         PORT: Joi.number().default(3000),
         HF_TOKEN: Joi.string().required(),
         HF_MODEL: Joi.string().default('meta-llama/Llama-3.1-8B-Instruct:novita'),
@@ -17,7 +19,7 @@ import { HealthModule } from './health/health.module';
         ),
         HF_MAX_TOKENS: Joi.number().default(100),
         HF_TEMPERATURE: Joi.number().default(0.7),
-        CORS_ORIGINS: Joi.string().default('http://localhost:5173,http://localhost:3000'),
+        CORS_ORIGINS: Joi.string().optional(),
       }),
     }),
     ChemistryModule,

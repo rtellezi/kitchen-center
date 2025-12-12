@@ -1,8 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
+import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from '../src/app.module';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import express from 'express';
 import { Request, Response } from 'express';
 
@@ -23,27 +23,26 @@ async function createNestServer(): Promise<express.Express> {
   );
 
   const configService = app.get(ConfigService);
+  const nodeEnv = configService.get<string>('NODE_ENV', 'production');
   const corsOrigins = configService.get<string>('CORS_ORIGINS', '').split(',').filter(Boolean);
 
-  const config = new DocumentBuilder()
-    .setTitle('Test Backend API')
-    .setDescription('The test backend API description')
-    .setVersion('1.0')
-    .addTag('health')
-    .addTag('chemistry')
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document, {
-    customSiteTitle: 'Test Backend API Docs',
-    customCss: '.swagger-ui .topbar { display: none }',
-  });
-
+  // CORS configuration
   app.enableCors({
-    origin: corsOrigins.length > 0 ? corsOrigins : true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    origin: nodeEnv === 'production' 
+      ? (corsOrigins.length > 0 ? corsOrigins : false)
+      : true, // Allow all origins in development
+    methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
+
+  // Global validation pipe
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+    }),
+  );
 
   await app.init();
   cachedApp = expressApp;
