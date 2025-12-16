@@ -3,6 +3,11 @@ import { ConfigModule } from '@nestjs/config';
 import * as Joi from 'joi';
 import { ChemistryModule } from './chemistry/chemistry.module';
 import { HealthModule } from './health/health.module';
+import { AuthModule } from './auth/auth.module';
+import { EventsModule } from './events/events.module';
+import { StatsModule } from './stats/stats.module';
+import { ProfilesModule } from './profiles/profiles.module';
+import { AccountModule } from './account/account.module';
 
 @Module({
   imports: [
@@ -19,11 +24,20 @@ import { HealthModule } from './health/health.module';
         ),
         HF_MAX_TOKENS: Joi.number().default(100),
         HF_TEMPERATURE: Joi.number().default(0.95),
+        SUPABASE_URL: Joi.string().required(),
+        SUPABASE_KEY: Joi.string().required(),
+        SUPABASE_SERVICE_ROLE_KEY: Joi.string().required(),
+        SUPABASE_JWT_SECRET: Joi.string().required(),
         CORS_ORIGINS: Joi.string().optional(),
       }),
     }),
     ChemistryModule,
     HealthModule,
+    AuthModule,
+    EventsModule,
+    StatsModule,
+    ProfilesModule,
+    AccountModule,
   ],
 })
 export class AppModule {}

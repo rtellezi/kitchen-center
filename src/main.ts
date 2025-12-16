@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import { Logger } from './common/logger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -15,7 +16,7 @@ async function bootstrap() {
     origin: nodeEnv === 'production' 
       ? (corsOrigins.length > 0 ? corsOrigins : false)
       : true, // Allow all origins in development
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
@@ -30,6 +31,6 @@ async function bootstrap() {
 
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
-  console.log(`🚀 Kitchen Center API running on http://localhost:${port}`);
+  Logger.log(`🚀 Kitchen Center API running on http://localhost:${port}`);
 }
 bootstrap();
