@@ -7,6 +7,8 @@ import express from 'express';
 import { Request, Response } from 'express';
 
 let cachedApp: express.Express | null = null;
+let corsConfig: { origin: string | boolean | string[]; methods: string[]; allowedHeaders: string[]; credentials: boolean } | null = null;
+let corsConfig: { origin: string | boolean | string[]; methods: string[]; allowedHeaders: string[]; credentials: boolean } | null = null;
 
 async function createNestServer(): Promise<express.Express> {
   if (cachedApp) {
@@ -47,11 +49,11 @@ async function createNestServer(): Promise<express.Express> {
   });
 
   // CORS configuration
-  const corsConfig = {
+  corsConfig = {
     origin: nodeEnv === 'production' 
       ? (corsOrigins.length > 0 ? corsOrigins : false)
       : true, // Allow all origins in development
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   };
@@ -84,6 +86,29 @@ export default async function handler(req: Request, res: Response): Promise<void
   
   try {
     const app = await createNestServer();
+    
+    // Handle OPTIONS preflight requests explicitly to ensure CORS headers are set correctly
+    if (req.method === 'OPTIONS') {
+      const origin = req.headers.origin || '';
+      
+      if (corsConfig) {
+        const isAllowedOrigin = corsConfig.origin === true 
+          ? true 
+          : Array.isArray(corsConfig.origin) 
+            ? corsConfig.origin.includes(origin)
+            : corsConfig.origin === origin;
+        
+        if (isAllowedOrigin) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+          res.setHeader('Access-Control-Allow-Methods', corsConfig.methods.join(', '));
+          res.setHeader('Access-Control-Allow-Headers', corsConfig.allowedHeaders.join(', '));
+          res.setHeader('Access-Control-Allow-Credentials', corsConfig.credentials.toString());
+          res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+        }
+      }
+      res.status(204).end();
+      return;
+    }
     
     // Add response logging using finish event
     res.on('finish', () => {
