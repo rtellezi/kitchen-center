@@ -8,7 +8,6 @@ import { Request, Response } from 'express';
 
 let cachedApp: express.Express | null = null;
 let corsConfig: { origin: string | boolean | string[]; methods: string[]; allowedHeaders: string[]; credentials: boolean } | null = null;
-let corsConfig: { origin: string | boolean | string[]; methods: string[]; allowedHeaders: string[]; credentials: boolean } | null = null;
 
 async function createNestServer(): Promise<express.Express> {
   if (cachedApp) {
