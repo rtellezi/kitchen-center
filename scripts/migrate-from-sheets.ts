@@ -4,6 +4,9 @@ import Papa from 'papaparse';
 import * as dotenv from 'dotenv';
 import { join } from 'path';
 
+// Load environment-specific file first, then fallback to .env
+const nodeEnv = process.env.NODE_ENV || 'development';
+dotenv.config({ path: join(__dirname, `../.env.${nodeEnv}`) });
 dotenv.config({ path: join(__dirname, '../.env') });
 
 const SUPABASE_URL = process.env.SUPABASE_URL;

@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { CreateShareDto } from './dto/create-share.dto';
@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 
 @Injectable()
 export class SharesService {
+  private readonly logger = new Logger(SharesService.name);
   private supabase: SupabaseClient;
 
   constructor(private configService: ConfigService) {
@@ -39,7 +40,17 @@ export class SharesService {
       .select()
       .single();
 
-    if (error) throw new InternalServerErrorException(error.message);
+    if (error) {
+      this.logger.error('Error creating share link:', {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw new InternalServerErrorException(
+        `Failed to create share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
+      );
+    }
     
     // Generate share URL (frontend will construct full URL)
     const shareUrl = `/share/${token}`;
@@ -58,7 +69,18 @@ export class SharesService {
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
-    if (error) throw new InternalServerErrorException(error.message);
+    if (error) {
+      this.logger.error('Error fetching share links:', {
+        userId,
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw new InternalServerErrorException(
+        `Failed to fetch share links: ${error.message}${error.details ? ` (${error.details})` : ''}`
+      );
+    }
     
     // Add shareUrl to each share
     return data.map(share => ({
@@ -77,7 +99,16 @@ export class SharesService {
 
     if (error) {
       if (error.code === 'PGRST116') throw new NotFoundException('Share link not found');
-      throw new InternalServerErrorException(error.message);
+      this.logger.error('Error finding share link by token:', {
+        token,
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw new InternalServerErrorException(
+        `Failed to find share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
+      );
     }
 
     // Validate expiration
@@ -100,7 +131,16 @@ export class SharesService {
 
     if (shareError) {
       if (shareError.code === 'PGRST116') throw new NotFoundException('Share link not found');
-      throw new InternalServerErrorException(shareError.message);
+      this.logger.error('Error getting share link for events:', {
+        token,
+        error: shareError.message,
+        code: shareError.code,
+        details: shareError.details,
+        hint: shareError.hint,
+      });
+      throw new InternalServerErrorException(
+        `Failed to get share link: ${shareError.message}${shareError.details ? ` (${shareError.details})` : ''}`
+      );
     }
 
     if (!shareData) {
@@ -131,7 +171,18 @@ export class SharesService {
 
     const { data, error } = await query;
 
-    if (error) throw new InternalServerErrorException(error.message);
+    if (error) {
+      this.logger.error('Error fetching events for share link:', {
+        token,
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw new InternalServerErrorException(
+        `Failed to fetch events: ${error.message}${error.details ? ` (${error.details})` : ''}`
+      );
+    }
     return data || [];
   }
 
@@ -159,7 +210,19 @@ export class SharesService {
       .select()
       .single();
 
-    if (error) throw new InternalServerErrorException(error.message);
+    if (error) {
+      this.logger.error('Error updating share link:', {
+        id,
+        userId,
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw new InternalServerErrorException(
+        `Failed to update share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
+      );
+    }
     if (!data) throw new NotFoundException('Share link not found or not owned by user');
     
     return {
@@ -176,7 +239,19 @@ export class SharesService {
       .eq('id', id)
       .eq('user_id', userId);
 
-    if (error) throw new InternalServerErrorException(error.message);
+    if (error) {
+      this.logger.error('Error deleting share link:', {
+        id,
+        userId,
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw new InternalServerErrorException(
+        `Failed to delete share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
+      );
+    }
     if (count === 0) throw new NotFoundException('Share link not found');
     
     return { message: 'Share link deleted successfully' };
