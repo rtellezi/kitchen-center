@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsEnum, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsNumber, IsOptional, Max, Min, IsString, MaxLength } from 'class-validator';
 
 export class UpdateEventDto {
   @IsDateString()
@@ -18,4 +18,9 @@ export class UpdateEventDto {
   @IsBoolean()
   @IsOptional()
   is_cycle?: boolean;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  notes?: string;
 }
