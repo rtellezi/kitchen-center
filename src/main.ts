@@ -7,16 +7,16 @@ import { Logger } from './common/logger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
-  
+
   // CORS configuration based on environment
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
   const corsOrigins = configService.get<string>('CORS_ORIGINS', '').split(',').filter(Boolean);
-  
+
   app.enableCors({
-    origin: nodeEnv === 'production' 
+    origin: nodeEnv === 'production'
       ? (corsOrigins.length > 0 ? corsOrigins : false)
       : true, // Allow all origins in development
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
