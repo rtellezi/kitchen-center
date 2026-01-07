@@ -9,6 +9,7 @@ import { StatsModule } from './stats/stats.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { AccountModule } from './account/account.module';
 import { SharesModule } from './shares/shares.module';
+import { PartnersModule } from './partners/partners.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { SharesModule } from './shares/shares.module';
     ProfilesModule,
     AccountModule,
     SharesModule,
+    PartnersModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }
