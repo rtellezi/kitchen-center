@@ -20,7 +20,7 @@ export class SharesService {
   async create(createShareDto: CreateShareDto, userId: string) {
     const token = randomUUID();
     const expiresAt = new Date(createShareDto.expiresAt);
-    
+
     // Validate expiration is in the future
     if (expiresAt <= new Date()) {
       throw new BadRequestException('Expiration date must be in the future');
@@ -36,6 +36,8 @@ export class SharesService {
         expires_at: expiresAt.toISOString(),
         date_from: createShareDto.dateFrom || null,
         date_to: createShareDto.dateTo || null,
+        included_partner_ids: createShareDto.includedPartnerIds || null,
+        include_no_partner_events: createShareDto.includeNoPartnerEvents ?? true, // Default true if not specified
       })
       .select()
       .single();
@@ -51,10 +53,10 @@ export class SharesService {
         `Failed to create share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
       );
     }
-    
+
     // Generate share URL (frontend will construct full URL)
     const shareUrl = `/share/${token}`;
-    
+
     return {
       ...data,
       shareUrl,
@@ -81,7 +83,7 @@ export class SharesService {
         `Failed to fetch share links: ${error.message}${error.details ? ` (${error.details})` : ''}`
       );
     }
-    
+
     // Add shareUrl to each share
     return data.map(share => ({
       ...share,
@@ -93,7 +95,7 @@ export class SharesService {
     const { data, error } = await this.supabase
       .schema('chest')
       .from('share_links')
-      .select('id, name, expires_at, date_from, date_to, created_at')
+      .select('id, name, expires_at, date_from, date_to, created_at, included_partner_ids, include_no_partner_events')
       .eq('token', token)
       .single();
 
@@ -125,7 +127,7 @@ export class SharesService {
     const { data: shareData, error: shareError } = await this.supabase
       .schema('chest')
       .from('share_links')
-      .select('user_id, date_from, date_to, expires_at')
+      .select('user_id, date_from, date_to, expires_at, included_partner_ids, include_no_partner_events')
       .eq('token', token)
       .single();
 
@@ -153,11 +155,11 @@ export class SharesService {
       throw new NotFoundException('Share link has expired');
     }
 
-    // Build query for events
+    // Build query for events, including partners
     let query = this.supabase
       .schema('chest')
       .from('events')
-      .select('*')
+      .select('*, partners:event_partners(partner:partners(*))') // Join partners
       .eq('user_id', shareData.user_id)
       .order('date', { ascending: true });
 
@@ -183,7 +185,36 @@ export class SharesService {
         `Failed to fetch events: ${error.message}${error.details ? ` (${error.details})` : ''}`
       );
     }
-    return data || [];
+
+    // Filter events based on partners whitelisting
+    const includedPartnerIds = shareData.included_partner_ids || [];
+    const includeNoPartnerEvents = shareData.include_no_partner_events;
+
+    const filteredEvents = (data || [])
+      .map((event: any) => {
+        const partners = event.partners?.map((p: any) => p.partner) || [];
+        return { ...event, partners };
+      })
+      .filter((event: any) => {
+        const partners = event.partners;
+        if (partners.length === 0) {
+          return includeNoPartnerEvents;
+        }
+        // If has partners, check if specific partners are included OR if whitelist is empty/null which might imply "all" 
+        // BUT requirement says "selection 0-many to filter out events". 
+        // "if all/none selected, events without partners will be shown". 
+        // Let's stick to explicit whitelist: if includedPartnerIds has IDs, event must match. 
+        // If includedPartnerIds is empty array -> Assume NO partners are whitelisted -> only show if no partners (handled above)
+        // Wait, if "none selected" -> probably means empty list.
+
+        // Logic:
+        // return partners.some(p => includedPartnerIds.includes(p.id));
+        if (includedPartnerIds.length === 0) return false; // If nothing whitelisted, and event has partners, hide it.
+
+        return partners.some((p: any) => includedPartnerIds.includes(p.id));
+      });
+
+    return filteredEvents;
   }
 
   async update(id: string, updateShareDto: UpdateShareDto, userId: string) {
@@ -200,6 +231,8 @@ export class SharesService {
     if (updateShareDto.expiresAt) updateData.expires_at = new Date(updateShareDto.expiresAt).toISOString();
     if (updateShareDto.dateFrom !== undefined) updateData.date_from = updateShareDto.dateFrom || null;
     if (updateShareDto.dateTo !== undefined) updateData.date_to = updateShareDto.dateTo || null;
+    if (updateShareDto.includedPartnerIds !== undefined) updateData.included_partner_ids = updateShareDto.includedPartnerIds;
+    if (updateShareDto.includeNoPartnerEvents !== undefined) updateData.include_no_partner_events = updateShareDto.includeNoPartnerEvents;
 
     const { data, error } = await this.supabase
       .schema('chest')
@@ -224,7 +257,7 @@ export class SharesService {
       );
     }
     if (!data) throw new NotFoundException('Share link not found or not owned by user');
-    
+
     return {
       ...data,
       shareUrl: `/share/${data.token}`,
@@ -253,7 +286,7 @@ export class SharesService {
       );
     }
     if (count === 0) throw new NotFoundException('Share link not found');
-    
+
     return { message: 'Share link deleted successfully' };
   }
 }
