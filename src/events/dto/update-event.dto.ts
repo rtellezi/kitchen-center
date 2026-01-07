@@ -23,4 +23,8 @@ export class UpdateEventDto {
   @IsOptional()
   @MaxLength(300)
   notes?: string;
+
+  @IsOptional()
+  @IsString({ each: true })
+  partnerIds?: string[];
 }
