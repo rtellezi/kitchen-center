@@ -16,31 +16,51 @@ export class EventsService {
   }
 
   async findAll(userId: string) {
-    // Select events and join partners via event_partners
-    // We want all event columns + partner info
-    const { data, error } = await this.supabase
+    // 1. Fetch events with their partners
+    const { data: events, error: eventsError } = await this.supabase
       .schema('chest')
       .from('events')
       .select('*, partners:event_partners(partner:partners(*))')
       .eq('user_id', userId)
       .order('date', { ascending: true });
 
-    if (error) throw new InternalServerErrorException(error.message);
+    if (eventsError) throw new InternalServerErrorException(eventsError.message);
 
-    // Transform data to flatten structure and apply visibility filter
-    // Shape from Supabase: { ..., partners: [ { partner: { id, is_visible, ... } } ] }
-    const visibleEvents = data
-      .map((event: any) => {
-        // Flatten partners
-        const partners = event.partners?.map((p: any) => p.partner) || [];
-        // Check visibility: if ANY partner is hidden (is_visible = false), hide event?
-        // OR: interpret "select the partners to filter out event" -> User unchecks partner in settings -> partner.is_visible = false -> filter out events with this partner.
-        const isHidden = partners.some((p: any) => p.is_visible === false);
-        return { ...event, partners, isHidden };
-      })
-      .filter((event) => !event.isHidden);
+    // 2. Fetch all user partners to handle "No Partner" visibility and other filters
+    const { data: partners, error: partnersError } = await this.supabase
+      .schema('chest')
+      .from('partners')
+      .select('*')
+      .eq('user_id', userId);
 
-    return visibleEvents; // Return only visible events
+    if (partnersError) throw new InternalServerErrorException(partnersError.message);
+
+    // Create a visibility map for easy lookup
+    const visibilityMap = (partners || []).reduce((acc: Record<string, boolean>, p: any) => {
+      acc[p.id] = p.is_visible;
+      return acc;
+    }, {});
+
+    // Default "No Partner" (ID: 0) visibility to true if the row doesn't exist yet
+    const noPartnerVisible = visibilityMap['0'] !== undefined ? visibilityMap['0'] : true;
+
+    // 3. Filter events based on visibility rules
+    const filteredEvents = events.filter((event: any) => {
+      const flattenedPartners = event.partners?.map((p: any) => p.partner) || [];
+
+      if (flattenedPartners.length === 0) {
+        // Event has no partners -> use "No Partner" visibility
+        return noPartnerVisible;
+      }
+
+      // Event has partners -> visible if AT LEAST ONE of its partners is visible
+      return flattenedPartners.some((p: any) => p && visibilityMap[p.id] === true);
+    }).map((event: any) => ({
+      ...event,
+      partners: event.partners?.map((p: any) => p.partner) || []
+    }));
+
+    return filteredEvents;
   }
 
   async findOne(id: string, userId: string) {
@@ -78,6 +98,19 @@ export class EventsService {
     if (error) throw new InternalServerErrorException(error.message);
 
     if (partnerIds && partnerIds.length > 0) {
+      // Security check: Ensure all partnerIds belong to the user
+      const { data: userPartners, error: verifyError } = await this.supabase
+        .schema('chest')
+        .from('partners')
+        .select('id')
+        .eq('user_id', userId)
+        .in('id', partnerIds);
+
+      if (verifyError) throw new InternalServerErrorException('Failed to verify partners');
+      if (userPartners.length !== partnerIds.length) {
+        throw new InternalServerErrorException('One or more partners do not belong to you');
+      }
+
       const { error: partnersError } = await this.supabase
         .schema('chest')
         .from('event_partners')
@@ -89,8 +122,6 @@ export class EventsService {
         );
 
       if (partnersError) {
-        // Log error but don't fail the active event creation? Or fail?
-        // Since it's a creation, strict consistency is better.
         throw new InternalServerErrorException('Failed to add partners: ' + partnersError.message);
       }
     }
@@ -125,6 +156,19 @@ export class EventsService {
 
       // Insert new
       if (partnerIds.length > 0) {
+        // Security check: Ensure all partnerIds belong to the user
+        const { data: userPartners, error: verifyError } = await this.supabase
+          .schema('chest')
+          .from('partners')
+          .select('id')
+          .eq('user_id', userId)
+          .in('id', partnerIds);
+
+        if (verifyError) throw new InternalServerErrorException('Failed to verify partners');
+        if (userPartners.length !== partnerIds.length) {
+          throw new InternalServerErrorException('One or more partners do not belong to you');
+        }
+
         const { error: partnersError } = await this.supabase
           .schema('chest')
           .from('event_partners')

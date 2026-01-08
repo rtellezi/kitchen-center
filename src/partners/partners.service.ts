@@ -28,6 +28,29 @@ export class PartnersService {
             this.logger.error(`Error fetching partners for user ${userId}: ${error.message}`);
             throw new InternalServerErrorException(error.message);
         }
+
+        // Ensure "No Partner" (ID: 0) exists
+        const noPartner = data.find(p => p.id === '0');
+        if (!noPartner) {
+            const { data: newNoPartner, error: insertError } = await this.supabase
+                .schema('chest')
+                .from('partners')
+                .insert({
+                    id: '0',
+                    user_id: userId,
+                    name: 'No Partner',
+                    color: '#808080',
+                    is_visible: true,
+                    is_default: false
+                })
+                .select()
+                .single();
+
+            if (!insertError && newNoPartner) {
+                data.push(newNoPartner);
+            }
+        }
+
         return data;
     }
 
@@ -85,6 +108,15 @@ export class PartnersService {
         if (updatePartnerDto.color !== undefined) updateData.color = updatePartnerDto.color;
         if (updatePartnerDto.isDefault !== undefined) updateData.is_default = updatePartnerDto.isDefault;
         if (updatePartnerDto.isVisible !== undefined) updateData.is_visible = updatePartnerDto.isVisible;
+
+        // Requirement: If unchecked a favorite partner, remove favorite
+        if (updatePartnerDto.isVisible === false) {
+            const current = await this.findOne(id, userId);
+            if (current.is_default) {
+                updateData.is_default = false;
+                updatePartnerDto.isDefault = false; // For logic below
+            }
+        }
 
         const { data, error } = await this.supabase
             .schema('chest')
