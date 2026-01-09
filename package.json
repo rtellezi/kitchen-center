@@ -4,7 +4,7 @@
   "description": "Optimized NestJS backend for Vercel",
   "license": "MIT",
   "scripts": {
-    "build": "nest build",
+    "build": "npx prisma generate && nest build",
     "start:dev": "cross-env NODE_ENV=development nest start --watch",
     "start:prod": "cross-env NODE_ENV=production node dist/main"
   },
