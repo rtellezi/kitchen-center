@@ -132,6 +132,7 @@ export class EventsService {
       const event = await this.prisma.events.create({
         data: {
           ...eventData,
+          date: new Date(eventData.date), // Explicit conversion for creation
           profile_id: profileId,
           event_partners: finalPartnerIds && finalPartnerIds.length > 0 ? {
             create: finalPartnerIds.map(pid => ({
@@ -164,38 +165,56 @@ export class EventsService {
     if (!existing) throw new NotFoundException('Event not found or not owned by user');
 
     try {
-      // Prepare partner updates if needed
-      let eventPartnersUpdate: any = undefined;
-      if (partnerIds !== undefined) {
-        // Verify ownership of new partners
-        if (partnerIds.length > 0) {
-          const count = await this.prisma.partners.count({
-            where: { id: { in: partnerIds }, profile_id: profileId }
-          });
-          if (count !== partnerIds.length) {
-            throw new InternalServerErrorException('One or more partners do not belong to you');
-          }
+      // Validate partners if provided
+      if (partnerIds && partnerIds.length > 0) {
+        const count = await this.prisma.partners.count({
+          where: { id: { in: partnerIds }, profile_id: profileId }
+        });
+        if (count !== partnerIds.length) {
+          throw new InternalServerErrorException('One or more partners do not belong to you');
         }
-
-        // Transactional update: delete existing links, create new ones
-        eventPartnersUpdate = {
-          deleteMany: {}, // Delete all associated event_partners for this event
-          create: partnerIds.map(pid => ({
-            partners: { connect: { id: pid } }
-          }))
-        };
       }
 
-      const updatedEvent = await this.prisma.events.update({
+      // Execute transaction
+      await this.prisma.$transaction(async (tx) => {
+        // 1. Update event details
+        await tx.events.update({
+          where: { id },
+          data: {
+            ...eventUpdateData,
+            // Explicitly convert date string to Date object if present
+            ...(eventUpdateData.date && { date: new Date(eventUpdateData.date) }),
+          },
+        });
+
+        // 2. Update partners if provided
+        if (partnerIds !== undefined) {
+          // Delete existing associations
+          await tx.event_partners.deleteMany({
+            where: { event_id: id }
+          });
+
+          // Create new associations
+          if (partnerIds.length > 0) {
+            await tx.event_partners.createMany({
+              data: partnerIds.map(pid => ({
+                event_id: id,
+                partner_id: pid
+              }))
+            });
+          }
+        }
+      });
+
+      // 3. Return updated event with partners
+      const updatedEvent = await this.prisma.events.findUnique({
         where: { id },
-        data: {
-          ...eventUpdateData,
-          event_partners: eventPartnersUpdate
-        },
         include: {
           event_partners: { include: { partners: true } }
         }
       });
+
+      if (!updatedEvent) throw new NotFoundException('Event not found after update');
 
       const partners = updatedEvent.event_partners.map(ep => ep.partners);
       const { event_partners, ...rest } = updatedEvent;
