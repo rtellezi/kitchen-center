@@ -9,11 +9,17 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   // CORS configuration based on environment
-  const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:4173',
-    'http://localhost:3000',
-  ];
+  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  const allowedOrigins: string[] = [];
+
+  // Only allow localhost in development
+  if (nodeEnv !== 'production') {
+    allowedOrigins.push(
+      'http://localhost:5173',
+      'http://localhost:4173',
+      'http://localhost:3000',
+    );
+  }
 
   const envOrigins = configService.get<string>('CORS_ORIGINS', '')
     .split(',')
