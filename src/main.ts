@@ -9,13 +9,31 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   // CORS configuration based on environment
-  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
-  const corsOrigins = configService.get<string>('CORS_ORIGINS', '').split(',').filter(Boolean);
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:4173',
+    'http://localhost:3000',
+    'https://horizontal-journal.vercel.app',
+    'https://horizontal-journal.vercel.app/',
+  ];
+
+  const envOrigins = configService.get<string>('CORS_ORIGINS', '').split(',').filter(Boolean);
+  if (envOrigins.length > 0) {
+    allowedOrigins.push(...envOrigins);
+  }
 
   app.enableCors({
-    origin: true,
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin || allowedOrigins.includes(requestOrigin)) {
+        callback(null, true);
+      } else {
+        // Log blocked origin for debugging
+        Logger.warn(`Blocked CORS for origin: ${requestOrigin}`);
+        callback(null, false);
+      }
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
     credentials: true,
   });
 
