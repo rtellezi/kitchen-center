@@ -15,17 +15,24 @@ async function bootstrap() {
     'http://localhost:3000',
   ];
 
-  const envOrigins = configService.get<string>('CORS_ORIGINS', '').split(',').filter(Boolean);
+  const envOrigins = configService.get<string>('CORS_ORIGINS', '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
   if (envOrigins.length > 0) {
     allowedOrigins.push(...envOrigins);
   }
 
+  // Log allowed origins for debugging production issues
+  Logger.log(`Configured CORS Allowed Origins: ${JSON.stringify(allowedOrigins)}`);
+
   app.enableCors({
     origin: (requestOrigin, callback) => {
+      // Loose matching for production resilience: check if allowedOrigins contains the requestOrigin
       if (!requestOrigin || allowedOrigins.includes(requestOrigin)) {
         callback(null, true);
       } else {
-        // Log blocked origin for debugging
         Logger.warn(`Blocked CORS for origin: ${requestOrigin}`);
         callback(null, false);
       }
