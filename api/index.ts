@@ -17,7 +17,7 @@ async function createNestServer(): Promise<express.Express> {
 
   console.log('[Vercel] Initializing NestJS app...');
   const expressApp = express();
-  
+
   // Request logging middleware
   expressApp.use((req, res, next) => {
     const timestamp = new Date().toISOString();
@@ -49,10 +49,10 @@ async function createNestServer(): Promise<express.Express> {
 
   // CORS configuration
   corsConfig = {
-    origin: nodeEnv === 'production' 
+    origin: nodeEnv === 'production'
       ? (corsOrigins.length > 0 ? corsOrigins : false)
       : true, // Allow all origins in development
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   };
@@ -82,21 +82,21 @@ async function createNestServer(): Promise<express.Express> {
 export default async function handler(req: Request, res: Response): Promise<void> {
   const requestId = Date.now();
   console.log(`[${requestId}] Handler called: ${req.method} ${req.url}`);
-  
+
   try {
     const app = await createNestServer();
-    
+
     // Handle OPTIONS preflight requests explicitly to ensure CORS headers are set correctly
     if (req.method === 'OPTIONS') {
       const origin = req.headers.origin || '';
-      
+
       if (corsConfig) {
-        const isAllowedOrigin = corsConfig.origin === true 
-          ? true 
-          : Array.isArray(corsConfig.origin) 
+        const isAllowedOrigin = corsConfig.origin === true
+          ? true
+          : Array.isArray(corsConfig.origin)
             ? corsConfig.origin.includes(origin)
             : corsConfig.origin === origin;
-        
+
         if (isAllowedOrigin) {
           res.setHeader('Access-Control-Allow-Origin', origin);
           res.setHeader('Access-Control-Allow-Methods', corsConfig.methods.join(', '));
@@ -108,7 +108,7 @@ export default async function handler(req: Request, res: Response): Promise<void
       res.status(204).end();
       return;
     }
-    
+
     // Add response logging using finish event
     res.on('finish', () => {
       console.log(`[${requestId}] Response: ${res.statusCode}`, {
@@ -124,7 +124,7 @@ export default async function handler(req: Request, res: Response): Promise<void
       stack: error instanceof Error ? error.stack : undefined,
     });
     if (!res.headersSent) {
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Internal server error',
         requestId,
         timestamp: new Date().toISOString(),

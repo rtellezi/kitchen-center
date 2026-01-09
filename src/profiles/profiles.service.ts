@@ -1,95 +1,88 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Injectable, InternalServerErrorException, NotFoundException, Logger } from '@nestjs/common';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class ProfilesService {
-  private supabase: SupabaseClient;
+  private readonly logger = new Logger(ProfilesService.name);
 
-  constructor(private configService: ConfigService) {
-    this.supabase = createClient(
-      this.configService.get<string>('SUPABASE_URL')!,
-      this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY')!,
-    );
-  }
+  constructor(private prisma: PrismaService) { }
 
   async findOne(userId: string) {
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
+    try {
+      let profile = await this.prisma.profiles.findUnique({
+        where: { user_id: userId },
+      });
 
-    if (error) {
-      if (error.code === 'PGRST116') return null; // No profile found, return null (not an error)
-      throw new InternalServerErrorException(error.message);
+      if (!profile) {
+        this.logger.log(`Profile for user ${userId} not found, creating default.`);
+        profile = await this.prisma.profiles.create({
+          data: {
+            user_id: userId,
+          },
+        });
+      }
+
+      return profile;
+    } catch (error) {
+      this.logger.error(`Error finding/creating profile for user ${userId}:`, error);
+      throw new InternalServerErrorException('Failed to fetch profile');
     }
-    return data;
   }
 
   async create(createProfileDto: CreateProfileDto, userId: string) {
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('profiles')
-      .insert({
-        ...createProfileDto,
-        user_id: userId,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Profile create error:', error);
-      throw new InternalServerErrorException(
-        `Failed to create profile: ${error.message} (Code: ${error.code || 'unknown'})`
-      );
+    try {
+      const profile = await this.prisma.profiles.create({
+        data: {
+          ...createProfileDto,
+          user_id: userId,
+        },
+      });
+      return profile;
+    } catch (error) {
+      this.logger.error('Profile create error:', error);
+      throw new InternalServerErrorException('Failed to create profile');
     }
-    return data;
   }
 
   async update(updateProfileDto: UpdateProfileDto, userId: string) {
     // Check if profile exists
-    const existing = await this.findOne(userId);
-    
-    if (!existing) {
-      // Create profile if it doesn't exist
-      return this.create(updateProfileDto, userId);
-    }
+    const existing = await this.prisma.profiles.findUnique({
+      where: { user_id: userId }
+    });
 
-    // Update existing profile
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('profiles')
-      .update(updateProfileDto)
-      .eq('user_id', userId)
-      .select()
-      .single();
+    try {
+      if (!existing) {
+        // Create profile if it doesn't exist
+        return this.create(updateProfileDto as CreateProfileDto, userId);
+      }
 
-    if (error) {
-      console.error('Profile update error:', error);
-      throw new InternalServerErrorException(
-        `Failed to update profile: ${error.message} (Code: ${error.code || 'unknown'})`
-      );
+      const profile = await this.prisma.profiles.update({
+        where: { user_id: userId },
+        data: updateProfileDto,
+      });
+
+      return profile;
+    } catch (error) {
+      this.logger.error('Profile update error:', error);
+      throw new InternalServerErrorException('Failed to update profile');
     }
-    if (!data) throw new NotFoundException('Profile not found or not owned by user');
-    
-    return data;
   }
 
   async remove(userId: string) {
-    const { error, count } = await this.supabase
-      .schema('chest')
-      .from('profiles')
-      .delete({ count: 'exact' })
-      .eq('user_id', userId);
+    try {
+      const { count } = await this.prisma.profiles.deleteMany({
+        where: { user_id: userId }
+      });
 
-    if (error) throw new InternalServerErrorException(error.message);
-    if (count === 0) throw new NotFoundException('Profile not found');
-    
-    return { message: 'Profile deleted successfully' };
+      if (count === 0) throw new NotFoundException('Profile not found');
+      return { message: 'Profile deleted successfully' };
+
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error('Profile delete error:', error);
+      throw new InternalServerErrorException('Failed to delete profile');
+    }
   }
 }
-

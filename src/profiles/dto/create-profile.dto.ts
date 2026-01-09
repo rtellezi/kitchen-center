@@ -20,5 +20,12 @@ export class CreateProfileDto {
   @IsString()
   @IsOptional()
   marital_status?: string;
+
+  @IsString()
+  @IsOptional()
+  default_partner_id?: string;
+
+  @IsOptional()
+  include_no_partner_events?: boolean;
 }
 

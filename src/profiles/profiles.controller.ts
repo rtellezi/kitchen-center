@@ -8,7 +8,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 @Controller('profiles')
 @UseGuards(SupabaseAuthGuard)
 export class ProfilesController {
-  constructor(private readonly profilesService: ProfilesService) {}
+  constructor(private readonly profilesService: ProfilesService) { }
 
   @Post()
   create(@Body() createProfileDto: CreateProfileDto, @CurrentUser() user: any) {

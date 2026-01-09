@@ -1,202 +1,222 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { PrismaService } from '../prisma/prisma.service';
+import { ProfilesService } from '../profiles/profiles.service';
 
 @Injectable()
 export class EventsService {
-  private supabase: SupabaseClient;
-
-  constructor(private configService: ConfigService) {
-    this.supabase = createClient(
-      this.configService.get<string>('SUPABASE_URL')!,
-      this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY')!,
-    );
-  }
+  constructor(
+    private prisma: PrismaService,
+    private profilesService: ProfilesService
+  ) { }
 
   async findAll(userId: string) {
-    // 1. Fetch events with their partners
-    const { data: events, error: eventsError } = await this.supabase
-      .schema('chest')
-      .from('events')
-      .select('*, partners:event_partners(partner:partners(*))')
-      .eq('user_id', userId)
-      .order('date', { ascending: true });
+    try {
+      const profile = await this.profilesService.findOne(userId);
+      const profileId = profile.id;
 
-    if (eventsError) throw new InternalServerErrorException(eventsError.message);
+      // 1. Fetch events with their partners
+      const events = await this.prisma.events.findMany({
+        where: { profile_id: profileId },
+        include: {
+          event_partners: {
+            include: {
+              partners: true,
+            },
+          },
+        },
+        orderBy: { date: 'asc' },
+      });
 
-    // 2. Fetch all user partners to handle "No Partner" visibility and other filters
-    const { data: partners, error: partnersError } = await this.supabase
-      .schema('chest')
-      .from('partners')
-      .select('*')
-      .eq('user_id', userId);
+      // 2. Fetch all user partners to handle "No Partner" visibility
+      // Note: PartnersService should also be refactored to use profile_id, but here we query Prisma directly.
+      // We should query partners by profile_id too.
+      const partners = await this.prisma.partners.findMany({
+        where: { profile_id: profileId },
+      });
 
-    if (partnersError) throw new InternalServerErrorException(partnersError.message);
+      // Create a visibility map
+      const visibilityMap = partners.reduce((acc, p) => {
+        acc[p.id] = p.is_visible;
+        return acc;
+      }, {} as Record<string, boolean>);
 
-    // Create a visibility map for easy lookup
-    const visibilityMap = (partners || []).reduce((acc: Record<string, boolean>, p: any) => {
-      acc[p.id] = p.is_visible;
-      return acc;
-    }, {});
+      // Default "No Partner" visibility from profile settings
+      const noPartnerVisible = profile.include_no_partner_events ?? true;
 
-    // Default "No Partner" (ID: 0) visibility to true if the row doesn't exist yet
-    const noPartnerVisible = visibilityMap['0'] !== undefined ? visibilityMap['0'] : true;
+      // 3. Filter events based on visibility rules
+      const filteredEvents = events.filter((event) => {
+        // Flatten partners from event_partners relation
+        const eventPartners = event.event_partners.map((ep) => ep.partners);
 
-    // 3. Filter events based on visibility rules
-    const filteredEvents = events.filter((event: any) => {
-      const flattenedPartners = event.partners?.map((p: any) => p.partner) || [];
+        if (eventPartners.length === 0) {
+          // Event has no partners -> use "No Partner" visibility
+          return noPartnerVisible;
+        }
 
-      if (flattenedPartners.length === 0) {
-        // Event has no partners -> use "No Partner" visibility
-        return noPartnerVisible;
-      }
+        // Event has partners -> visible if AT LEAST ONE is visible
+        return eventPartners.some((p) => p && visibilityMap[p.id] === true);
+      }).map((event) => ({
+        ...event,
+        // Helper to return flattened partners to frontend/client
+        partners: event.event_partners.map((ep) => ep.partners),
+      }));
 
-      // Event has partners -> visible if AT LEAST ONE of its partners is visible
-      return flattenedPartners.some((p: any) => p && visibilityMap[p.id] === true);
-    }).map((event: any) => ({
-      ...event,
-      partners: event.partners?.map((p: any) => p.partner) || []
-    }));
+      // Cleanup event_partners from the output
+      return filteredEvents.map(({ event_partners, ...rest }) => rest);
 
-    return filteredEvents;
+    } catch (error: any) {
+      throw new InternalServerErrorException(error.message);
+    }
   }
 
   async findOne(id: string, userId: string) {
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('events')
-      .select('*, partners:event_partners(partner:partners(*))')
-      .eq('id', id)
-      .eq('user_id', userId)
-      .single();
+    try {
+      const profile = await this.profilesService.findOne(userId);
+      const profileId = profile.id;
 
-    if (error) {
-      if (error.code === 'PGRST116') throw new NotFoundException('Event not found'); // PGRST116 is JSON code for no rows
+      const event = await this.prisma.events.findFirst({
+        where: { id, profile_id: profileId },
+        include: {
+          event_partners: {
+            include: {
+              partners: true,
+            },
+          },
+        },
+      });
+
+      if (!event) throw new NotFoundException('Event not found');
+
+      // Flatten partners
+      const partners = event.event_partners.map((ep) => ep.partners);
+      // Exclude event_partners property
+      const { event_partners, ...rest } = event;
+
+      return { ...rest, partners };
+    } catch (error: any) {
+      if (error instanceof NotFoundException) throw error;
       throw new InternalServerErrorException(error.message);
     }
-
-    // Flatten partners similar to findAll
-    const partners = data.partners?.map((p: any) => p.partner) || [];
-    return { ...data, partners };
   }
 
   async create(createEventDto: CreateEventDto, userId: string) {
     const { partnerIds, ...eventData } = createEventDto;
+    const profile = await this.profilesService.findOne(userId);
+    const profileId = profile.id;
 
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('events')
-      .insert({
-        ...eventData,
-        user_id: userId,
-      })
-      .select()
-      .single();
-
-    if (error) throw new InternalServerErrorException(error.message);
-
-    if (partnerIds && partnerIds.length > 0) {
-      // Security check: Ensure all partnerIds belong to the user
-      const { data: userPartners, error: verifyError } = await this.supabase
-        .schema('chest')
-        .from('partners')
-        .select('id')
-        .eq('user_id', userId)
-        .in('id', partnerIds);
-
-      if (verifyError) throw new InternalServerErrorException('Failed to verify partners');
-      if (userPartners.length !== partnerIds.length) {
-        throw new InternalServerErrorException('One or more partners do not belong to you');
-      }
-
-      const { error: partnersError } = await this.supabase
-        .schema('chest')
-        .from('event_partners')
-        .insert(
-          partnerIds.map((pid) => ({
-            event_id: data.id,
-            partner_id: pid,
-          }))
-        );
-
-      if (partnersError) {
-        throw new InternalServerErrorException('Failed to add partners: ' + partnersError.message);
+    // Use default partner if no partnerIds provided (undefined/null)
+    // If [] is provided, it means explicit "No Partner"
+    let finalPartnerIds = partnerIds;
+    if (finalPartnerIds === undefined || finalPartnerIds === null) {
+      if (profile.default_partner_id) {
+        finalPartnerIds = [profile.default_partner_id];
       }
     }
 
-    return this.findOne(data.id, userId); // Return complete object with partners
+    // Security check for partners (ensure they belong to the same profile)
+    if (finalPartnerIds && finalPartnerIds.length > 0) {
+      const userPartnersCount = await this.prisma.partners.count({
+        where: {
+          id: { in: finalPartnerIds },
+          profile_id: profileId,
+        }
+      });
+      if (userPartnersCount !== finalPartnerIds.length) {
+        throw new InternalServerErrorException('One or more partners do not belong to you');
+      }
+    }
+
+    try {
+      const event = await this.prisma.events.create({
+        data: {
+          ...eventData,
+          profile_id: profileId,
+          event_partners: finalPartnerIds && finalPartnerIds.length > 0 ? {
+            create: finalPartnerIds.map(pid => ({
+              partners: { connect: { id: pid } }
+            }))
+          } : undefined
+        },
+        include: {
+          event_partners: { include: { partners: true } }
+        }
+      });
+
+      const partners = event.event_partners.map(ep => ep.partners);
+      const { event_partners, ...rest } = event;
+      return { ...rest, partners };
+
+    } catch (error: any) {
+      throw new InternalServerErrorException(error.message);
+    }
   }
 
   async update(id: string, updateEventDto: UpdateEventDto, userId: string) {
     const { partnerIds, ...eventUpdateData } = updateEventDto;
 
-    // First ensure it belongs to user (implicit in update query with eq)
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('events')
-      .update(eventUpdateData)
-      .eq('id', id)
-      .eq('user_id', userId)
-      .select()
-      .single();
+    const profile = await this.profilesService.findOne(userId);
+    const profileId = profile.id;
 
-    if (error) throw new InternalServerErrorException(error.message);
-    if (!data) throw new NotFoundException('Event not found or not owned by user');
+    // Check ownership first
+    const existing = await this.prisma.events.findFirst({ where: { id, profile_id: profileId } });
+    if (!existing) throw new NotFoundException('Event not found or not owned by user');
 
-    // Update partners if provided (replace all)
-    if (partnerIds !== undefined) {
-      // Delete existing
-      await this.supabase
-        .schema('chest')
-        .from('event_partners')
-        .delete()
-        .eq('event_id', id);
-
-      // Insert new
-      if (partnerIds.length > 0) {
-        // Security check: Ensure all partnerIds belong to the user
-        const { data: userPartners, error: verifyError } = await this.supabase
-          .schema('chest')
-          .from('partners')
-          .select('id')
-          .eq('user_id', userId)
-          .in('id', partnerIds);
-
-        if (verifyError) throw new InternalServerErrorException('Failed to verify partners');
-        if (userPartners.length !== partnerIds.length) {
-          throw new InternalServerErrorException('One or more partners do not belong to you');
+    try {
+      // Prepare partner updates if needed
+      let eventPartnersUpdate: any = undefined;
+      if (partnerIds !== undefined) {
+        // Verify ownership of new partners
+        if (partnerIds.length > 0) {
+          const count = await this.prisma.partners.count({
+            where: { id: { in: partnerIds }, profile_id: profileId }
+          });
+          if (count !== partnerIds.length) {
+            throw new InternalServerErrorException('One or more partners do not belong to you');
+          }
         }
 
-        const { error: partnersError } = await this.supabase
-          .schema('chest')
-          .from('event_partners')
-          .insert(
-            partnerIds.map((pid) => ({
-              event_id: id,
-              partner_id: pid,
-            }))
-          );
-        if (partnersError) throw new InternalServerErrorException('Failed to update partners: ' + partnersError.message);
+        // Transactional update: delete existing links, create new ones
+        eventPartnersUpdate = {
+          deleteMany: {}, // Delete all associated event_partners for this event
+          create: partnerIds.map(pid => ({
+            partners: { connect: { id: pid } }
+          }))
+        };
       }
-    }
 
-    return this.findOne(id, userId);
+      const updatedEvent = await this.prisma.events.update({
+        where: { id },
+        data: {
+          ...eventUpdateData,
+          event_partners: eventPartnersUpdate
+        },
+        include: {
+          event_partners: { include: { partners: true } }
+        }
+      });
+
+      const partners = updatedEvent.event_partners.map(ep => ep.partners);
+      const { event_partners, ...rest } = updatedEvent;
+      return { ...rest, partners };
+
+    } catch (error: any) {
+      if (error instanceof InternalServerErrorException) throw error;
+      throw new InternalServerErrorException(error.message);
+    }
   }
 
   async remove(id: string, userId: string) {
-    const { error, count } = await this.supabase
-      .schema('chest')
-      .from('events')
-      .delete({ count: 'exact' })
-      .eq('id', id)
-      .eq('user_id', userId);
+    const profile = await this.profilesService.findOne(userId);
+    const profileId = profile.id;
 
-    if (error) throw new InternalServerErrorException(error.message);
+    // Delete many ensures ownership check
+    const { count } = await this.prisma.events.deleteMany({
+      where: { id, profile_id: profileId },
+    });
+
     if (count === 0) throw new NotFoundException('Event not found');
-
     return { message: 'Event deleted successfully' };
   }
 }
-

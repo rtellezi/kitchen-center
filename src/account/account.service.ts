@@ -1,23 +1,17 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { EventsService } from '../events/events.service';
 import { ProfilesService } from '../profiles/profiles.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AccountService {
-  private supabase: SupabaseClient;
+  private readonly logger = new Logger(AccountService.name);
 
   constructor(
-    private configService: ConfigService,
     private eventsService: EventsService,
     private profilesService: ProfilesService,
-  ) {
-    this.supabase = createClient(
-      this.configService.get<string>('SUPABASE_URL')!,
-      this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY')!,
-    );
-  }
+    private prisma: PrismaService,
+  ) { }
 
   async deleteAccount(userId: string) {
     try {
@@ -28,7 +22,7 @@ export class AccountService {
           await this.eventsService.remove(event.id, userId);
         }
       } catch (error) {
-        console.error('Error deleting events:', error);
+        this.logger.error('Error deleting events:', error);
         // Continue with account deletion even if event deletion fails
       }
 
@@ -36,17 +30,22 @@ export class AccountService {
       try {
         await this.profilesService.remove(userId);
       } catch (error) {
-        console.error('Error deleting profile:', error);
+        this.logger.error('Error deleting profile:', error);
         // Continue with account deletion even if profile deletion fails
       }
 
-      // 3. Delete user from Supabase auth (requires admin privileges)
-      const { error: authError } = await this.supabase.auth.admin.deleteUser(userId);
-
-      if (authError) {
-        console.error('Error deleting auth user:', authError);
+      // 3. Delete user from Database (Prisma)
+      // Since we are connected as postgres superuser (via DIRECT_URL or DATABASE_URL pooler user),
+      // we should be able to delete from the auth.users table if it's mapped in Prisma.
+      // Our introspect mapped 'users' in 'auth' schema.
+      try {
+        await this.prisma.users.delete({
+          where: { id: userId }
+        });
+      } catch (error) {
+        this.logger.error('Error deleting user record:', error);
         throw new InternalServerErrorException(
-          `Failed to delete user account: ${authError.message}`
+          `Failed to delete user account: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
 
@@ -58,11 +57,10 @@ export class AccountService {
       if (error instanceof InternalServerErrorException) {
         throw error;
       }
-      console.error('Unexpected error during account deletion:', error);
+      this.logger.error('Unexpected error during account deletion:', error);
       throw new InternalServerErrorException(
         'Failed to delete account. Please try again or contact support.'
       );
     }
   }
 }
-

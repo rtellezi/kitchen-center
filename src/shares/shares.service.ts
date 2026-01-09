@@ -1,21 +1,18 @@
 import { Injectable, InternalServerErrorException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { CreateShareDto } from './dto/create-share.dto';
 import { UpdateShareDto } from './dto/update-share.dto';
 import { randomUUID } from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import { ProfilesService } from '../profiles/profiles.service';
 
 @Injectable()
 export class SharesService {
   private readonly logger = new Logger(SharesService.name);
-  private supabase: SupabaseClient;
 
-  constructor(private configService: ConfigService) {
-    this.supabase = createClient(
-      this.configService.get<string>('SUPABASE_URL')!,
-      this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY')!,
-    );
-  }
+  constructor(
+    private prisma: PrismaService,
+    private profilesService: ProfilesService
+  ) { }
 
   async create(createShareDto: CreateShareDto, userId: string) {
     const token = randomUUID();
@@ -26,267 +23,220 @@ export class SharesService {
       throw new BadRequestException('Expiration date must be in the future');
     }
 
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('share_links')
-      .insert({
-        user_id: userId,
-        token,
-        name: createShareDto.name || null,
-        expires_at: expiresAt.toISOString(),
-        date_from: createShareDto.dateFrom || null,
-        date_to: createShareDto.dateTo || null,
-        included_partner_ids: createShareDto.includedPartnerIds || null,
-        include_no_partner_events: createShareDto.includeNoPartnerEvents ?? true, // Default true if not specified
-      })
-      .select()
-      .single();
+    try {
+      const profile = await this.profilesService.findOne(userId);
+      const profileId = profile.id;
 
-    if (error) {
-      this.logger.error('Error creating share link:', {
-        error: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
+      const share = await this.prisma.share_links.create({
+        data: {
+          profile_id: profileId,
+          token,
+          name: createShareDto.name || null,
+          expires_at: expiresAt,
+          date_from: createShareDto.dateFrom ? new Date(createShareDto.dateFrom) : null,
+          date_to: createShareDto.dateTo ? new Date(createShareDto.dateTo) : null,
+          included_partner_ids: createShareDto.includedPartnerIds || [],
+          include_no_partner_events: createShareDto.includeNoPartnerEvents ?? true,
+        },
       });
-      throw new InternalServerErrorException(
-        `Failed to create share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
-      );
+
+      return {
+        ...share,
+        shareUrl: `/share/${token}`,
+      };
+    } catch (error) {
+      this.logger.error('Error creating share link:', error);
+      throw new InternalServerErrorException('Failed to create share link');
     }
-
-    // Generate share URL (frontend will construct full URL)
-    const shareUrl = `/share/${token}`;
-
-    return {
-      ...data,
-      shareUrl,
-    };
   }
 
   async findAll(userId: string) {
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('share_links')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+    try {
+      const profile = await this.profilesService.findOne(userId);
+      const profileId = profile.id;
 
-    if (error) {
-      this.logger.error('Error fetching share links:', {
-        userId,
-        error: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
+      const shares = await this.prisma.share_links.findMany({
+        where: { profile_id: profileId },
+        orderBy: { created_at: 'desc' },
       });
-      throw new InternalServerErrorException(
-        `Failed to fetch share links: ${error.message}${error.details ? ` (${error.details})` : ''}`
-      );
-    }
 
-    // Add shareUrl to each share
-    return data.map(share => ({
-      ...share,
-      shareUrl: `/share/${share.token}`,
-    }));
+      return shares.map(share => ({
+        ...share,
+        shareUrl: `/share/${share.token}`,
+      }));
+    } catch (error) {
+      this.logger.error('Error fetching share links:', error);
+      throw new InternalServerErrorException('Failed to fetch share links');
+    }
   }
 
   async findByToken(token: string) {
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('share_links')
-      .select('id, name, expires_at, date_from, date_to, created_at, included_partner_ids, include_no_partner_events')
-      .eq('token', token)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') throw new NotFoundException('Share link not found');
-      this.logger.error('Error finding share link by token:', {
-        token,
-        error: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
+    try {
+      const share = await this.prisma.share_links.findUnique({
+        where: { token },
+        select: {
+          id: true,
+          name: true,
+          expires_at: true,
+          date_from: true,
+          date_to: true,
+          created_at: true,
+          included_partner_ids: true,
+          include_no_partner_events: true,
+        }
       });
-      throw new InternalServerErrorException(
-        `Failed to find share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
-      );
-    }
 
-    // Validate expiration
-    const expiresAt = new Date(data.expires_at);
-    if (expiresAt <= new Date()) {
-      throw new NotFoundException('Share link has expired');
-    }
+      if (!share) throw new NotFoundException('Share link not found');
 
-    return data;
+      // Validate expiration
+      if (new Date(share.expires_at) <= new Date()) {
+        throw new NotFoundException('Share link has expired');
+      }
+
+      return share;
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error('Error finding share link by token:', error);
+      throw new InternalServerErrorException('Failed to find share link');
+    }
   }
 
   async getEventsByToken(token: string) {
-    // Get share link with user_id and date filters in one query
-    const { data: shareData, error: shareError } = await this.supabase
-      .schema('chest')
-      .from('share_links')
-      .select('user_id, date_from, date_to, expires_at, included_partner_ids, include_no_partner_events')
-      .eq('token', token)
-      .single();
-
-    if (shareError) {
-      if (shareError.code === 'PGRST116') throw new NotFoundException('Share link not found');
-      this.logger.error('Error getting share link for events:', {
-        token,
-        error: shareError.message,
-        code: shareError.code,
-        details: shareError.details,
-        hint: shareError.hint,
+    try {
+      // Get share link details
+      const shareData = await this.prisma.share_links.findUnique({
+        where: { token },
+        select: {
+          profile_id: true,
+          date_from: true,
+          date_to: true,
+          expires_at: true,
+          included_partner_ids: true,
+          include_no_partner_events: true
+        }
       });
-      throw new InternalServerErrorException(
-        `Failed to get share link: ${shareError.message}${shareError.details ? ` (${shareError.details})` : ''}`
-      );
-    }
 
-    if (!shareData) {
-      throw new NotFoundException('Share link not found');
-    }
+      if (!shareData) throw new NotFoundException('Share link not found');
 
-    // Validate expiration
-    const expiresAt = new Date(shareData.expires_at);
-    if (expiresAt <= new Date()) {
-      throw new NotFoundException('Share link has expired');
-    }
+      // Validate expiration
+      if (new Date(shareData.expires_at) <= new Date()) {
+        throw new NotFoundException('Share link has expired');
+      }
 
-    // Build query for events, including partners
-    let query = this.supabase
-      .schema('chest')
-      .from('events')
-      .select('*, partners:event_partners(partner:partners(*))') // Join partners
-      .eq('user_id', shareData.user_id)
-      .order('date', { ascending: true });
+      // Build query for events
+      const whereClause: any = {
+        profile_id: shareData.profile_id, // Switch to profile_id
+      };
 
-    // Apply date range filter if specified
-    if (shareData.date_from) {
-      query = query.gte('date', shareData.date_from);
-    }
-    if (shareData.date_to) {
-      query = query.lte('date', shareData.date_to);
-    }
+      if (shareData.date_from) {
+        whereClause.date = { ...whereClause.date, gte: shareData.date_from };
+      }
+      if (shareData.date_to) {
+        whereClause.date = { ...whereClause.date, lte: shareData.date_to };
+      }
 
-    const { data, error } = await query;
-
-    if (error) {
-      this.logger.error('Error fetching events for share link:', {
-        token,
-        error: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
+      const events = await this.prisma.events.findMany({
+        where: whereClause,
+        include: {
+          event_partners: {
+            include: {
+              partners: true
+            }
+          }
+        },
+        orderBy: { date: 'asc' }
       });
-      throw new InternalServerErrorException(
-        `Failed to fetch events: ${error.message}${error.details ? ` (${error.details})` : ''}`
-      );
-    }
 
-    // Filter events based on partners whitelisting
-    const includedPartnerIds = shareData.included_partner_ids || [];
-    const includeNoPartnerEvents = shareData.include_no_partner_events;
+      // Filter events based on partners rules
+      const includedPartnerIds = shareData.included_partner_ids || [];
+      const includeNoPartnerEvents = shareData.include_no_partner_events;
 
-    const filteredEvents = (data || [])
-      .map((event: any) => {
-        const partners = event.partners?.map((p: any) => p.partner) || [];
+      const filteredEvents = events.map((event) => {
+        // Flatten partners
+        const partners = event.event_partners.map((ep) => ep.partners);
+        // Remove event_partners from object to match expected output if needed, or just attach mapped partners
+        // We'll return a clean object with 'partners' array
         return { ...event, partners };
-      })
-      .filter((event: any) => {
+      }).filter((event) => {
         const partners = event.partners;
+
         if (partners.length === 0) {
           return includeNoPartnerEvents;
         }
-        // If has partners, check if specific partners are included OR if whitelist is empty/null which might imply "all" 
-        // BUT requirement says "selection 0-many to filter out events". 
-        // "if all/none selected, events without partners will be shown". 
-        // Let's stick to explicit whitelist: if includedPartnerIds has IDs, event must match. 
-        // If includedPartnerIds is empty array -> Assume NO partners are whitelisted -> only show if no partners (handled above)
-        // Wait, if "none selected" -> probably means empty list.
 
-        // Logic:
-        // return partners.some(p => includedPartnerIds.includes(p.id));
-        if (includedPartnerIds.length === 0) return false; // If nothing whitelisted, and event has partners, hide it.
+        if (includedPartnerIds.length === 0) return false;
 
-        return partners.some((p: any) => includedPartnerIds.includes(p.id));
+        return partners.some((p) => includedPartnerIds.includes(p.id));
       });
 
-    return filteredEvents;
+      // Clean up the `event_partners` property from the mapped result above
+      return filteredEvents.map(({ event_partners, ...rest }) => rest);
+
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error('Error fetching events for share link:', error);
+      throw new InternalServerErrorException('Failed to fetch events');
+    }
   }
 
   async update(id: string, updateShareDto: UpdateShareDto, userId: string) {
     // Validate expiration if provided
     if (updateShareDto.expiresAt) {
-      const expiresAt = new Date(updateShareDto.expiresAt);
-      if (expiresAt <= new Date()) {
+      if (new Date(updateShareDto.expiresAt) <= new Date()) {
         throw new BadRequestException('Expiration date must be in the future');
       }
     }
 
-    const updateData: any = {};
-    if (updateShareDto.name !== undefined) updateData.name = updateShareDto.name || null;
-    if (updateShareDto.expiresAt) updateData.expires_at = new Date(updateShareDto.expiresAt).toISOString();
-    if (updateShareDto.dateFrom !== undefined) updateData.date_from = updateShareDto.dateFrom || null;
-    if (updateShareDto.dateTo !== undefined) updateData.date_to = updateShareDto.dateTo || null;
-    if (updateShareDto.includedPartnerIds !== undefined) updateData.included_partner_ids = updateShareDto.includedPartnerIds;
-    if (updateShareDto.includeNoPartnerEvents !== undefined) updateData.include_no_partner_events = updateShareDto.includeNoPartnerEvents;
+    const profile = await this.profilesService.findOne(userId);
+    const profileId = profile.id;
 
-    const { data, error } = await this.supabase
-      .schema('chest')
-      .from('share_links')
-      .update(updateData)
-      .eq('id', id)
-      .eq('user_id', userId)
-      .select()
-      .single();
+    // Check ownership
+    const existing = await this.prisma.share_links.findFirst({
+      where: { id, profile_id: profileId }
+    });
+    if (!existing) throw new NotFoundException('Share link not found or not owned by user');
 
-    if (error) {
-      this.logger.error('Error updating share link:', {
-        id,
-        userId,
-        error: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
+    try {
+      const updateData: any = {};
+      if (updateShareDto.name !== undefined) updateData.name = updateShareDto.name || null;
+      if (updateShareDto.expiresAt) updateData.expires_at = new Date(updateShareDto.expiresAt); // Prisma takes Date object
+      if (updateShareDto.dateFrom !== undefined) updateData.date_from = updateShareDto.dateFrom ? new Date(updateShareDto.dateFrom) : null;
+      if (updateShareDto.dateTo !== undefined) updateData.date_to = updateShareDto.dateTo ? new Date(updateShareDto.dateTo) : null;
+      if (updateShareDto.includedPartnerIds !== undefined) updateData.included_partner_ids = updateShareDto.includedPartnerIds;
+      if (updateShareDto.includeNoPartnerEvents !== undefined) updateData.include_no_partner_events = updateShareDto.includeNoPartnerEvents;
+
+      const updatedShare = await this.prisma.share_links.update({
+        where: { id },
+        data: updateData,
       });
-      throw new InternalServerErrorException(
-        `Failed to update share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
-      );
-    }
-    if (!data) throw new NotFoundException('Share link not found or not owned by user');
 
-    return {
-      ...data,
-      shareUrl: `/share/${data.token}`,
-    };
+      return {
+        ...updatedShare,
+        shareUrl: `/share/${updatedShare.token}`
+      };
+
+    } catch (error) {
+      this.logger.error('Error updating share link:', error);
+      throw new InternalServerErrorException('Failed to update share link');
+    }
   }
 
   async remove(id: string, userId: string) {
-    const { error, count } = await this.supabase
-      .schema('chest')
-      .from('share_links')
-      .delete({ count: 'exact' })
-      .eq('id', id)
-      .eq('user_id', userId);
+    const profile = await this.profilesService.findOne(userId);
+    const profileId = profile.id;
 
-    if (error) {
-      this.logger.error('Error deleting share link:', {
-        id,
-        userId,
-        error: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
+    try {
+      const { count } = await this.prisma.share_links.deleteMany({
+        where: { id, profile_id: profileId }
       });
-      throw new InternalServerErrorException(
-        `Failed to delete share link: ${error.message}${error.details ? ` (${error.details})` : ''}`
-      );
-    }
-    if (count === 0) throw new NotFoundException('Share link not found');
 
-    return { message: 'Share link deleted successfully' };
+      if (count === 0) throw new NotFoundException('Share link not found');
+      return { message: 'Share link deleted successfully' };
+
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error('Error deleting share link:', error);
+      throw new InternalServerErrorException('Failed to delete share link');
+    }
   }
 }
