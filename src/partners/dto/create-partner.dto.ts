@@ -12,9 +12,9 @@ export class CreatePartnerDto {
 
     @IsBoolean()
     @IsOptional()
-    isDefault?: boolean;
+    isVisible?: boolean;
 
     @IsBoolean()
     @IsOptional()
-    isVisible?: boolean;
+    isDefault?: boolean;
 }

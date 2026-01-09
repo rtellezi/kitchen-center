@@ -20,5 +20,12 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   marital_status?: string;
+
+  @IsString()
+  @IsOptional()
+  default_partner_id?: string | null;
+
+  @IsOptional()
+  include_no_partner_events?: boolean;
 }
 
