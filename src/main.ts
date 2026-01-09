@@ -13,8 +13,6 @@ async function bootstrap() {
     'http://localhost:5173',
     'http://localhost:4173',
     'http://localhost:3000',
-    'https://horizontal-journal.vercel.app',
-    'https://horizontal-journal.vercel.app/',
   ];
 
   const envOrigins = configService.get<string>('CORS_ORIGINS', '').split(',').filter(Boolean);
