@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import * as Joi from 'joi';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { ChemistryModule } from './chemistry/chemistry.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
@@ -10,9 +12,14 @@ import { ProfilesModule } from './profiles/profiles.module';
 import { AccountModule } from './account/account.module';
 import { SharesModule } from './shares/shares.module';
 import { PartnersModule } from './partners/partners.module';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([{
+      ttl: 60000,
+      limit: 60,
+    }]),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [`.env.${process.env.NODE_ENV || 'development'}`, '.env'],
@@ -26,9 +33,9 @@ import { PartnersModule } from './partners/partners.module';
         ),
         HF_MAX_TOKENS: Joi.number().default(100),
         HF_TEMPERATURE: Joi.number().default(0.95),
-        SUPABASE_URL: Joi.string().required(),
-        SUPABASE_KEY: Joi.string().required(),
-        SUPABASE_SERVICE_ROLE_KEY: Joi.string().required(),
+        // SUPABASE_URL and SUPABASE_KEY removed as we don't use supabase-js client anymore
+        // SUPABASE_SERVICE_ROLE_KEY removed as well
+        // We still need JWT Secret for verifying tokens if using Passport JWT with Supabase secret
         SUPABASE_JWT_SECRET: Joi.string().required(),
         CORS_ORIGINS: Joi.string().optional(),
       }),
@@ -42,6 +49,13 @@ import { PartnersModule } from './partners/partners.module';
     AccountModule,
     SharesModule,
     PartnersModule,
+    PrismaModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule { }
