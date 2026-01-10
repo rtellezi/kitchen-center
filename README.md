@@ -15,7 +15,7 @@ This is the NestJS backend service for the Horizontal Journal application. It pr
     DATABASE_URL="postgresql://..."
     DIRECT_URL="postgresql://..."
     NODE_ENV="development"
-    CORS_ORIGINS="http://localhost:5173"
+    CORS_ORIGINS="http://localhost:5173"   
     ```
 
 3.  **Run the application:**
