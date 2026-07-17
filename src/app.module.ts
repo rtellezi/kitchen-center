@@ -33,10 +33,12 @@ import { PrismaModule } from './prisma/prisma.module';
         ),
         HF_MAX_TOKENS: Joi.number().default(100),
         HF_TEMPERATURE: Joi.number().default(0.95),
-        // SUPABASE_URL and SUPABASE_KEY removed as we don't use supabase-js client anymore
-        // SUPABASE_SERVICE_ROLE_KEY removed as well
-        // We still need JWT Secret for verifying tokens if using Passport JWT with Supabase secret
-        SUPABASE_JWT_SECRET: Joi.string().required(),
+        // Project URL — required for JWKS: {SUPABASE_URL}/auth/v1/.well-known/jwks.json
+        SUPABASE_URL: Joi.string().uri().required(),
+        SUPABASE_PUBLISHABLE_KEY: Joi.string().optional(), // client key; not used for Nest auth
+        SUPABASE_SECRET_KEY: Joi.string().optional(), // server API key; not a JWT signing secret
+        // Optional while Legacy HS256 remains current / previously used; drop after full ECC rotation
+        SUPABASE_JWT_SECRET: Joi.string().optional(),
         CORS_ORIGINS: Joi.string().optional(),
       }),
     }),
