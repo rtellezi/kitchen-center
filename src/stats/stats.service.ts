@@ -13,7 +13,8 @@ export class StatsService {
 
   async getGlobalStats() {
     try {
-      const cachedStats = await this.cacheManager.get('global_stats');
+      const cacheKey = 'global_stats_v4';
+      const cachedStats = await this.cacheManager.get(cacheKey);
       if (cachedStats) {
         return cachedStats;
       }
@@ -33,7 +34,7 @@ export class StatsService {
       }
 
       // Cache for 30 minutes
-      await this.cacheManager.set('global_stats', data, 1800 * 1000);
+      await this.cacheManager.set(cacheKey, data, 1800 * 1000);
 
       return data;
     } catch (error) {

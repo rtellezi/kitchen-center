@@ -1,39 +1,9 @@
 const { Client } = require('pg');
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 
-const SQL = `
-CREATE OR REPLACE FUNCTION chest.get_global_stats()
- RETURNS json
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-declare
-  avg_intensity numeric;
-  total_events integer;
-  day_count integer;
-  night_count integer;
-  unique_profiles integer;
-  avg_events_per_profile numeric;
-begin
-  select avg(intensity), count(*), 
-         count(*) filter (where time_of_day = 'day'),
-         count(*) filter (where time_of_day = 'night'),
-         count(distinct profile_id)
-  into avg_intensity, total_events, day_count, night_count, unique_profiles
-  from chest.events;
-
-  avg_events_per_profile := case when unique_profiles > 0 then total_events::numeric / unique_profiles else 0 end;
-  
-  return json_build_object(
-    'avgIntensity', coalesce(avg_intensity, 0),
-    'totalEvents', total_events,
-    'dayCount', day_count,
-    'nightCount', night_count,
-    'avgEventsPerUser', round(avg_events_per_profile, 1)
-  );
-end;
-$function$;
-`;
+const SQL = fs.readFileSync(path.join(__dirname, 'function_def.sql'), 'utf8');
 
 async function main() {
     const client = new Client({
